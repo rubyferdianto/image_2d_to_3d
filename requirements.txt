@@ -1,0 +1,15 @@
+# Install PyTorch first, matching your GPU (RTX 50xx needs CUDA 12.8+ builds):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+transformers>=4.45
+numpy
+pillow
+opencv-python-headless
+trimesh
+gradio>=4.0
+pytest
+omegaconf
+einops
+rembg[cpu]
+pymcubes
+xatlas
+imageio
