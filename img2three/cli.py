@@ -24,6 +24,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--stereo-strength", type=float, default=0.03)
     p.add_argument("--convergence", type=float, default=0.5)
     p.add_argument("--mc-resolution", type=int, default=256, help="object mode: marching cubes grid size")
+    p.add_argument("--no-turntable", action="store_true", help="object mode: skip the 360-degree preview render (~5 s)")
     p.add_argument("--no-remove-bg", action="store_true", help="object mode: input already on a gray background")
     a = p.parse_args(argv)
 
@@ -43,7 +44,8 @@ def main(argv: list[str] | None = None) -> None:
             from .object3d import reconstruct
 
             files |= {f"object_{k}": v for k, v in reconstruct(img, a.out / img.stem, a.mc_resolution,
-                                                                remove_bg=not a.no_remove_bg).items()}
+                                                                remove_bg=not a.no_remove_bg,
+                                                                turntable=not a.no_turntable).items()}
         print(f"{img}:")
         for name, path in files.items():
             print(f"  {name:16s} {path}")
