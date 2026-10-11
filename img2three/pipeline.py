@@ -1,7 +1,7 @@
 """End-to-end: image -> depth -> {depth map, point cloud, mesh, stereo, anaglyph, wiggle GIF}."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import cv2
@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from . import geometry, stereo
+from .blender import BlenderOptions, find_blender, render_mesh
 from .depth import estimate_depth
 
 ALL_OUTPUTS = ("depth", "points", "mesh", "sbs", "anaglyph", "wiggle")
@@ -26,6 +27,8 @@ class Options:
     stereo_strength: float = 0.03   # max parallax as fraction of width
     convergence: float = 0.5        # disparity that sits on the screen plane
     outputs: tuple[str, ...] = field(default=ALL_OUTPUTS)
+    renderer: str = "native"
+    blender: BlenderOptions | None = None
 
 
 def _fit(img: Image.Image, max_side: int) -> Image.Image:
@@ -42,6 +45,11 @@ def colorize(disparity: np.ndarray) -> np.ndarray:
 
 def convert(image: Image.Image | str | Path, out_dir: str | Path, opts: Options | None = None) -> dict[str, Path]:
     opts = opts or Options()
+    if opts.renderer not in ("native", "blender"):
+        raise ValueError(f"Unknown renderer: {opts.renderer!r}; choose 'native' or 'blender'.")
+    blender_opts = opts.blender or BlenderOptions()
+    if opts.renderer == "blender":
+        blender_opts = replace(blender_opts, executable=find_blender(blender_opts.executable))
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     if not isinstance(image, Image.Image):
@@ -58,7 +66,7 @@ def convert(image: Image.Image | str | Path, out_dir: str | Path, opts: Options 
         files["depth16"] = out_dir / "depth16.png"
         Image.fromarray((d.disparity * 65535).astype(np.uint16)).save(files["depth16"])
 
-    if {"points", "mesh"} & set(opts.outputs):
+    if {"points", "mesh"} & set(opts.outputs) or opts.renderer == "blender":
         small = _fit(image, opts.mesh_size)
         w, h = small.size
         depth_s = cv2.resize(d.depth, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -67,7 +75,7 @@ def convert(image: Image.Image | str | Path, out_dir: str | Path, opts: Options 
         if "points" in opts.outputs:
             files["points"] = out_dir / "points.ply"
             geometry.build_point_cloud(depth_s, rgb_s, K).export(files["points"])
-        if "mesh" in opts.outputs:
+        if "mesh" in opts.outputs or opts.renderer == "blender":
             files["mesh"] = out_dir / "mesh.glb"
             geometry.build_mesh(depth_s, rgb_s, K, opts.edge_threshold).export(files["mesh"])
 
@@ -87,5 +95,9 @@ def convert(image: Image.Image | str | Path, out_dir: str | Path, opts: Options 
         frames = stereo.wiggle_frames(np.asarray(gif_img), gif_disp, opts.stereo_strength,
                                       convergence=opts.convergence)
         stereo.save_gif(frames, files["wiggle"])
+
+    if opts.renderer == "blender":
+        files.update(render_mesh(files["mesh"], out_dir, blender_opts, prefix="depth", mode="depth",
+                                 fov=opts.fov, aspect_ratio=image.width / image.height))
 
     return files
