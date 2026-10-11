@@ -3,9 +3,11 @@
 Pick an image from samples/, upload/paste your own, or type any local path. Uploads are
 copied to outputs/_uploads/; results are saved under outputs/<image name>/.
 """
+import os
 import shutil
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import gradio as gr
@@ -20,6 +22,9 @@ SAMPLES = ROOT / "samples"
 OUTPUTS = ROOT / "outputs"
 UPLOADS = OUTPUTS / "_uploads"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+# Hosted demo (Hugging Face sets SPACE_ID): only samples/ and uploads can be opened, since a typed
+# path would otherwise let any visitor read image files from the server; Blender isn't installed.
+PUBLIC = bool(os.environ.get("SPACE_ID"))
 VIEWER_BG = [0.07, 0.08, 0.1, 1.0]  # dark "studio" backdrop shared by both 3D viewers
 
 THEME = gr.themes.Base(
@@ -120,13 +125,17 @@ def sample_gallery() -> list[str]:
     return [str(SAMPLES / name) for name in list_samples()]
 
 
+def allowed(p: Path) -> bool:
+    return not PUBLIC or any(p.resolve().is_relative_to(d.resolve()) for d in (SAMPLES, UPLOADS))
+
+
 def resolve(choice: str | None) -> Path:
     """A samples/ file name, or any absolute/relative path typed by the user."""
     if not choice:
         raise gr.Error("Pick an image from the list or type a file path.")
     raw = choice.strip().strip('"')
     for p in (SAMPLES / raw, Path(raw), ROOT / raw):
-        if p.is_file():
+        if p.is_file() and allowed(p):
             return p
     raise gr.Error(f"File not found: {raw}")
 
@@ -150,8 +159,9 @@ def use_upload(path):
     """Copy an uploaded or pasted image to a stable path and select it like a sample."""
     if not path:
         return gr.skip()
-    UPLOADS.mkdir(parents=True, exist_ok=True)
-    dest = UPLOADS / Path(path).name
+    folder = UPLOADS / uuid.uuid4().hex[:12] if PUBLIC else UPLOADS  # visitors can't see each other's
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / Path(path).name
     shutil.copyfile(path, dest)
     return str(dest)
 
@@ -200,7 +210,7 @@ def run(choice, model, fov, edge_threshold, stereo_strength, convergence, render
 
 
 def renderer_picker():
-    with gr.Accordion("Advanced · final renderer", open=False):
+    with gr.Accordion("Advanced · final renderer", open=False, visible=not PUBLIC):
         renderer = gr.Radio([("Native", "native"), ("Blender", "blender")], value="native",
                             label="Final renderer",
                             info="Blender 4.2+ (installed separately) adds a final PNG and an editable "
@@ -220,7 +230,8 @@ def source_picker():
                          allow_preview=False, object_fit="cover", buttons=[], elem_classes="samples")
     with gr.Row(equal_height=False):
         pick = gr.Dropdown(list_samples(), label="Image", allow_custom_value=True, scale=5,
-                           info="Click a sample, drop your own image below, or paste a full path "
+                           info="Click a sample or drop your own image below." if PUBLIC else
+                                "Click a sample, drop your own image below, or paste a full path "
                                 "such as C:\\Users\\me\\Pictures\\photo.jpg")
         reload = gr.Button("↻", scale=0, min_width=44, size="sm", elem_classes="refresh-btn")
     shown = gr.Image(label="Preview · drop, click or paste to upload", type="filepath",

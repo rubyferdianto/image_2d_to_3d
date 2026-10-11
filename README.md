@@ -58,6 +58,16 @@ Click a sample, drag your own image onto the preview (or click it to browse, or 
 clipboard), or type a local path. Uploads are copied to `outputs/_uploads/`. Without a GPU the
 360° turntable is off by default, since it takes several times longer than the mesh itself.
 
+Publish the web UI as a Hugging Face Space (a public live demo):
+
+```powershell
+.\.venv\Scripts\hf auth login                 # once, with a Write token
+.\.venv\Scripts\python scripts\deploy_space.py  # -> https://huggingface.co/spaces/<you>/image_2d_to_3d
+```
+
+On a Space, typed paths are limited to `samples/` and uploads, each upload gets its own folder,
+and the Blender options are hidden. Free CPU hardware works, but a 3D model takes minutes.
+
 Python:
 
 ```python
