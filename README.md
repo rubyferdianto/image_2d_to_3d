@@ -66,7 +66,8 @@ Publish the web UI as a Hugging Face Space (a public live demo):
 ```
 
 On a Space, typed paths are limited to `samples/` and uploads, each upload gets its own folder,
-and the Blender options are hidden. Free CPU hardware works, but a 3D model takes minutes.
+and the Blender options are hidden. Hugging Face requires a PRO account to host Gradio Spaces;
+on the basic CPU hardware a 3D model takes minutes.
 
 Python:
 

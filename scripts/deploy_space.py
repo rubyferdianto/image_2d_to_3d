@@ -5,8 +5,9 @@
     .venv\\Scripts\\python scripts\\deploy_space.py owner/name --out build\\space   # write files only
 
 Uploads app.py, img2three/, samples/ and the vendored TripoSR package (third_party/TripoSR, see
-README), plus a Space README (front matter) and a requirements.txt derived from ours. The free
-CPU hardware works, but a 3D model takes minutes there; GPU hardware is a paid Space setting.
+README), plus a Space README (front matter) and a requirements.txt derived from ours. Hosting a
+Gradio Space needs a Hugging Face PRO account (the Hub answers 402 otherwise). On the basic CPU
+hardware a 3D model takes minutes; GPU hardware is a paid Space setting.
 """
 from __future__ import annotations
 
@@ -37,7 +38,7 @@ Live demo of [image_2d_to_3d]({GITHUB}): single-image 3D reconstruction with
 [TripoSR](https://github.com/VAST-AI-Research/TripoSR) (MIT) and monocular depth with
 [Depth Anything V2](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf) (Small, Apache-2.0).
 
-On free CPU hardware a full 3D model takes a few minutes; the 360° turntable is off by default.
+On CPU hardware a full 3D model takes a few minutes; the 360° turntable is off by default.
 Uploaded images are stored on this Space only until it restarts.
 """
 
