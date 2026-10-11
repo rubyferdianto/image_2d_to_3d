@@ -1,10 +1,12 @@
 """Gradio web UI: .venv/Scripts/python app.py  ->  http://127.0.0.1:7860
+Add --share for a temporary public https://*.gradio.live link (visitor safeguards switch on).
 
 Pick an image from samples/, upload/paste your own, or type any local path. Uploads are
 copied to outputs/_uploads/; results are saved under outputs/<image name>/.
 """
 import os
 import shutil
+import sys
 import threading
 import time
 import uuid
@@ -22,9 +24,11 @@ SAMPLES = ROOT / "samples"
 OUTPUTS = ROOT / "outputs"
 UPLOADS = OUTPUTS / "_uploads"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-# Hosted demo (Hugging Face sets SPACE_ID): only samples/ and uploads can be opened, since a typed
-# path would otherwise let any visitor read image files from the server; Blender isn't installed.
-PUBLIC = bool(os.environ.get("SPACE_ID"))
+# Public share link (--share) or hosted demo (Hugging Face sets SPACE_ID): only samples/ and uploads
+# can be opened, since a typed path would let visitors read image files from the server, and the
+# Blender renderer is off, since its executable path would let them run programs on it.
+SHARE = __name__ == "__main__" and "--share" in sys.argv[1:]
+PUBLIC = SHARE or bool(os.environ.get("SPACE_ID"))
 VIEWER_BG = [0.07, 0.08, 0.1, 1.0]  # dark "studio" backdrop shared by both 3D viewers
 
 THEME = gr.themes.Base(
@@ -169,6 +173,8 @@ def use_upload(path):
 def blender_options(renderer, executable, engine, resolution, samples):
     if renderer != "blender":
         return None
+    if PUBLIC:  # enforced here too: the API accepts these values even with the controls hidden
+        raise gr.Error("The Blender renderer is not available on the public demo.")
     return BlenderOptions(executable=(executable or "").strip().strip('"') or None, engine=engine,
                           resolution=int(resolution), samples=int(samples))
 
@@ -324,4 +330,4 @@ if __name__ == "__main__":
 
     # Load TripoSR in the background while the UI starts, so the first "Generate 3D" isn't slow.
     threading.Thread(target=warmup, daemon=True).start()
-    demo.launch(allowed_paths=[str(OUTPUTS), str(SAMPLES)], theme=THEME, css=CSS)
+    demo.launch(allowed_paths=[str(OUTPUTS), str(SAMPLES)], theme=THEME, css=CSS, share=SHARE)
