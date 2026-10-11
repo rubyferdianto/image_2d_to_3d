@@ -2,10 +2,22 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
+from .blender import BlenderOptions, find_blender
 from .depth import MODELS
 from .pipeline import ALL_OUTPUTS, Options, convert
+
+
+def _positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a positive integer") from None
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -24,17 +36,34 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--stereo-strength", type=float, default=0.03)
     p.add_argument("--convergence", type=float, default=0.5)
     p.add_argument("--mc-resolution", type=int, default=256, help="object mode: marching cubes grid size")
-    p.add_argument("--no-turntable", action="store_true", help="object mode: skip the 360-degree preview render (~5 s)")
+    p.add_argument("--no-turntable", action="store_true", help="object mode: skip the 360-degree preview (keeps the Blender still)")
     p.add_argument("--no-remove-bg", action="store_true", help="object mode: input already on a gray background")
+    p.add_argument("--renderer", choices=["native", "blender"], default="native",
+                   help="final renderer; Blender adds a still image and editable .blend scene")
+    p.add_argument("--blender-path", help="Blender executable path (otherwise auto-detected)")
+    p.add_argument("--blender-engine", choices=["cycles", "eevee"], default="cycles")
+    p.add_argument("--render-size", type=_positive_int, default=768,
+                   help="Blender render's longest side in pixels (default: 768)")
+    p.add_argument("--render-samples", type=_positive_int, default=32,
+                   help="Blender render samples (default: 32)")
     a = p.parse_args(argv)
 
     outputs = tuple(s.strip() for s in a.outputs.split(",") if s.strip())
     bad = set(outputs) - set(ALL_OUTPUTS)
     if bad:
         p.error(f"unknown outputs: {', '.join(sorted(bad))}")
+    blender_opts = None
+    if a.renderer == "blender":
+        blender_opts = BlenderOptions(executable=a.blender_path,
+                                      engine="CYCLES" if a.blender_engine == "cycles" else "BLENDER_EEVEE_NEXT",
+                                      resolution=a.render_size, samples=a.render_samples)
+        try:
+            blender_opts = replace(blender_opts, executable=find_blender(blender_opts.executable))
+        except (OSError, ValueError) as exc:
+            p.error(str(exc))
     opts = Options(model=a.model, fov=a.fov, near=a.near, far=a.far, mesh_size=a.mesh_size,
                    edge_threshold=a.edge_threshold, stereo_strength=a.stereo_strength,
-                   convergence=a.convergence, outputs=outputs)
+                   convergence=a.convergence, outputs=outputs, renderer=a.renderer, blender=blender_opts)
 
     for img in a.images:
         files = {}
@@ -45,7 +74,9 @@ def main(argv: list[str] | None = None) -> None:
 
             files |= {f"object_{k}": v for k, v in reconstruct(img, a.out / img.stem, a.mc_resolution,
                                                                 remove_bg=not a.no_remove_bg,
-                                                                turntable=not a.no_turntable).items()}
+                                                                turntable=not a.no_turntable,
+                                                                renderer=a.renderer,
+                                                                blender=blender_opts).items()}
         print(f"{img}:")
         for name, path in files.items():
             print(f"  {name:16s} {path}")

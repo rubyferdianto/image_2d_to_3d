@@ -7,12 +7,16 @@ from __future__ import annotations
 
 import re
 import sys
+import threading
 import types
-from functools import lru_cache
+from dataclasses import replace
+from functools import lru_cache, wraps
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+from .blender import BlenderOptions, find_blender, render_mesh
 
 TRIPOSR_DIR = Path(__file__).resolve().parent.parent / "third_party" / "TripoSR"
 
@@ -59,7 +63,20 @@ def _adapt_state_dict(ckpt: dict, expected: set[str]) -> dict:
     return out
 
 
-@lru_cache(maxsize=1)
+def _load_once(fn):
+    """Cache like lru_cache, but a concurrent first call (e.g. Generate 3D clicked during the startup
+    warmup) waits for the load in progress instead of downloading and loading a second copy."""
+    cached, lock = lru_cache(maxsize=1)(fn), threading.Lock()
+
+    @wraps(fn)
+    def wrapper():
+        with lock:
+            return cached()
+
+    return wrapper
+
+
+@_load_once
 def _load():
     import torch
     from huggingface_hub import hf_hub_download
@@ -80,11 +97,12 @@ def _load():
     return model.to(device).eval(), device
 
 
-@lru_cache(maxsize=1)
+@_load_once
 def _rembg_session():
     import rembg
 
-    return rembg.new_session()
+    # rembg>=2.0.8x defaults to bria-rmbg (1 GB, CC-BY-NC, slow on CPU); u2net is what TripoSR was built with.
+    return rembg.new_session("u2net")
 
 
 def prepare(image: Image.Image, foreground_ratio: float = 0.85, remove_bg: bool = True) -> Image.Image:
@@ -107,8 +125,15 @@ def warmup() -> None:
 
 def reconstruct(image: Image.Image | str | Path, out_dir: str | Path, mc_resolution: int = 256,
                 foreground_ratio: float = 0.85, remove_bg: bool = True, turntable: bool = True,
-                n_views: int = 24, view_size: int = 256) -> dict[str, Path]:
-    """Mesh extraction takes ~2 s; the optional NeRF turntable adds ~5 s (24 views @ 256 px, fp16)."""
+                n_views: int = 24, view_size: int = 256, renderer: str = "native",
+                blender: BlenderOptions | None = None) -> dict[str, Path]:
+    """Reconstruct a mesh, then render it with TripoSR or optional headless Blender."""
+    if renderer not in ("native", "blender"):
+        raise ValueError(f"Unknown renderer: {renderer!r}; choose 'native' or 'blender'.")
+    blender_opts = blender or BlenderOptions()
+    if renderer == "blender":
+        blender_opts = replace(blender_opts, executable=find_blender(blender_opts.executable))
+
     import torch
 
     model, device = _load()
@@ -131,6 +156,11 @@ def reconstruct(image: Image.Image | str | Path, out_dir: str | Path, mc_resolut
     mesh.export(files["mesh"])
     files["obj"] = out_dir / "object.obj"
     mesh.export(files["obj"])
+
+    if renderer == "blender":
+        files.update(render_mesh(files["mesh"], out_dir, blender_opts, prefix="object", mode="object",
+                                 turntable=turntable, n_views=n_views))
+        return files
 
     if not turntable:
         return files
